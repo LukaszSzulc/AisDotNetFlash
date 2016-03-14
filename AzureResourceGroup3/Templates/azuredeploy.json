@@ -1,0 +1,291 @@
+﻿{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+  "parameters": {
+    "AisFarmName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "AisFarmSKU": {
+      "type": "string",
+      "allowedValues": [
+        "Free",
+        "Shared",
+        "Basic",
+        "Standard"
+      ]
+    },
+    "databaseName": {
+      "type": "string"
+    },
+    "administratorLogin": {
+      "type": "string"
+    },
+    "administratorPassword": {
+      "type": "securestring"
+    },
+    "AisFarmWorkerSize": {
+      "type": "string",
+      "allowedValues": [
+        "0",
+        "1",
+        "2"
+      ]
+    },
+    "AisAppServicePlanName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "AisAppServicePlanSKU": {
+      "type": "string",
+      "allowedValues": [
+        "Free",
+        "Shared",
+        "Basic",
+        "Standard"
+      ],
+      "defaultValue": "Free"
+    },
+    "AisAppServicePlanWorkerSize": {
+      "type": "string",
+      "allowedValues": [
+        "0",
+        "1",
+        "2"
+      ],
+      "defaultValue": "0"
+    },
+    "aisAdminLogin": {
+      "type": "string",
+      "minLength": 1
+    },
+    "aisAdminLoginPassword": {
+      "type": "securestring"
+    },
+      "AzureStorageType": {
+          "type": "string",
+          "defaultValue": "Standard_LRS",
+          "allowedValues": [
+              "Standard_LRS",
+              "Standard_ZRS",
+              "Standard_GRS",
+              "Standard_RAGRS",
+              "Premium_LRS"
+          ]
+      },
+      "redisCacheName": {
+          "type": "string",
+          "minLength": 1
+      },
+      "redisCacheSKUName": {
+          "type": "string",
+          "allowedValues": [
+              "Basic",
+              "Standard"
+          ],
+          "defaultValue": "Standard"
+      },
+      "redisCacheSKUFamily": {
+          "type": "string",
+          "allowedValues": [
+              "C"
+          ],
+          "defaultValue": "C"
+      },
+      "redisCacheSKUCapacity": {
+          "type": "int",
+          "allowedValues": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6
+          ],
+          "defaultValue": 0
+      },
+      "redisCacheRedisVersion": {
+          "type": "string",
+          "allowedValues": [
+              "2.8"
+          ],
+          "defaultValue": "2.8"
+      }
+  },
+  "variables": {
+      "WebsiteName": "[concat('Website2', uniqueString(resourceGroup().id))]",
+      "aisName": "[concat('ais', uniqueString(resourceGroup().id))]",
+      "AzureStorageName": "szulcustorage1234",
+      "networkPrefix": "10.0.0.0/16",
+      "networkSubnet1Name": "Subnet-1",
+      "networkSubnet1Prefix": "10.0.0.0/24",
+      "networkSubnet2Name": "Subnet-2",
+      "networkSubnet2Prefix": "10.0.1.0/24"
+  },
+    "resources": [
+        {
+            "name": "[parameters('AisFarmName')]",
+            "type": "Microsoft.Web/serverfarms",
+            "location": "[resourceGroup().location]",
+            "apiVersion": "2014-06-01",
+            "dependsOn": [ ],
+            "tags": {
+                "displayName": "AisFarm"
+            },
+            "properties": {
+                "name": "[parameters('AisFarmName')]",
+                "sku": "[parameters('AisFarmSKU')]",
+                "workerSize": "[parameters('AisFarmWorkerSize')]",
+                "numberOfWorkers": 2
+            }
+        },
+      {
+        "name": "[variables('WebsiteName')]",
+        "type": "Microsoft.Web/sites",
+        "location": "[resourceGroup().location]",
+        "apiVersion": "2015-08-01",
+        "dependsOn": [
+          "[concat('Microsoft.Web/serverfarms/', parameters('AisFarmName'))]"
+        ],
+        "tags": {
+          "[concat('hidden-related:', resourceGroup().id, '/providers/Microsoft.Web/serverfarms/', parameters('AisFarmName'))]": "Resource",
+          "displayName": "Website"
+        },
+        "properties": {
+          "name": "[variables('WebsiteName')]",
+          "serverFarmId": "[resourceId('Microsoft.Web/serverfarms/', parameters('AisFarmName'))]",
+          "sampleProperty": "PropertyValue"
+        },
+        "resources": [
+          {
+            "name": "appsettings",
+            "type": "config",
+            "apiVersion": "2015-08-01",
+            "dependsOn": [
+              "[concat('Microsoft.Web/sites/', variables('WebsiteName'))]"
+            ],
+            "tags": {
+              "displayName": "Website"
+            },
+            "properties": {
+              "key1": "value1",
+              "key2": "value2",
+              "redisCache": "[listKeys(resourceId('Microsoft.Cache/Redis', parameters('redisCacheName')), '2014-04-01').primaryKey]",
+              "storageKey": "[listKeys(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), providers('Microsoft.Storage', 'storageAccounts').apiVersions[0]).key[1];"
+            }
+          },
+          {
+                "name": "connectionstrings",
+                "type": "config",
+                "apiVersion": "2015-08-01",
+                "dependsOn": [
+                    "[concat('Microsoft.Web/sites/', variables('WebsiteName'))]"
+                ],
+                "tags": {
+                    "displayName": "connectionStrings"
+                },
+                "properties": {
+                  "DefaultConnection": {
+                    "value": "[concat('Data Source=tcp:', reference(concat('Microsoft.Sql/servers/', variables('aisName'))).fullyQualifiedDomainName, ',1433;Initial Catalog=', parameters('databaseName'), ';User Id=', parameters('administratorLogin'), '@', variables('aisName'), ';Password=', parameters('administratorPassword'), ';')]",
+                    "type": "SQLServer"
+                  }
+                }
+            }
+        ]
+      },
+        {
+            "name": "[variables('aisName')]",
+            "type": "Microsoft.Sql/servers",
+            "location": "[resourceGroup().location]",
+            "apiVersion": "2014-04-01-preview",
+            "dependsOn": [ ],
+            "tags": {
+                "displayName": "ais"
+            },
+            "properties": {
+                "administratorLogin": "[parameters('aisAdminLogin')]",
+                "administratorLoginPassword": "[parameters('aisAdminLoginPassword')]"
+            },
+            "resources": [
+                {
+                    "name": "AllowAllWindowsAzureIps",
+                    "type": "firewallrules",
+                    "location": "[resourceGroup().location]",
+                    "apiVersion": "2014-04-01-preview",
+                    "dependsOn": [
+                        "[concat('Microsoft.Sql/servers/', variables('aisName'))]"
+                    ],
+                    "properties": {
+                        "startIpAddress": "0.0.0.0",
+                        "endIpAddress": "0.0.0.0"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "[variables('AzureStorageName')]",
+            "type": "Microsoft.Storage/storageAccounts",
+            "location": "[resourceGroup().location]",
+            "apiVersion": "2015-06-15",
+            "dependsOn": [ ],
+            "tags": {
+                "displayName": "AzureStorage"
+            },
+            "properties": {
+                "accountType": "[parameters('AzureStorageType')]"
+            }
+        },
+        {
+            "name": "[parameters('redisCacheName')]",
+            "type": "Microsoft.Cache/Redis",
+            "location": "[resourceGroup().location]",
+            "apiVersion": "2014-04-01-preview",
+            "dependsOn": [ ],
+            "tags": {
+                "displayName": "redisCache"
+            },
+            "properties": {
+                "sku": {
+                    "name": "[parameters('redisCacheSKUName')]",
+                    "family": "[parameters('redisCacheSKUFamily')]",
+                    "capacity": "[parameters('redisCacheSKUCapacity')]"
+                },
+                "redisVersion": "[parameters('redisCacheRedisVersion')]"
+            }
+        },
+        {
+            "name": "network",
+            "type": "Microsoft.Network/virtualNetworks",
+            "location": "[resourceGroup().location]",
+            "apiVersion": "2015-06-15",
+            "dependsOn": [ ],
+            "tags": {
+                "displayName": "network"
+            },
+            "properties": {
+                "addressSpace": {
+                    "addressPrefixes": [
+                        "[variables('networkPrefix')]"
+                    ]
+                },
+                "subnets": [
+                    {
+                        "name": "[variables('networkSubnet1Name')]",
+                        "properties": {
+                            "addressPrefix": "[variables('networkSubnet1Prefix')]"
+                        }
+                    },
+                    {
+                        "name": "[variables('networkSubnet2Name')]",
+                        "properties": {
+                            "addressPrefix": "[variables('networkSubnet2Prefix')]"
+                        }
+                    }
+                ]
+            }
+        }
+    ],
+    "outputs": {
+    }
+}
